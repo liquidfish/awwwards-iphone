@@ -6,6 +6,7 @@ import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 declare global {
   interface Window {
     grecaptcha?: {
+      ready?: (callback: () => void) => void;
       render: (
         container: HTMLElement,
         parameters: {
@@ -39,36 +40,61 @@ const Form = () => {
   }>({ type: "idle", message: "" });
   const captchaRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<number | null>(null);
+  const renderAttemptRef = useRef(0);
 
   const renderCaptcha = () => {
-    if (
-      !RECAPTCHA_SITE_KEY ||
-      !captchaRef.current ||
-      !window.grecaptcha ||
-      widgetIdRef.current !== null
-    ) {
+    if (!RECAPTCHA_SITE_KEY || !captchaRef.current || widgetIdRef.current !== null) {
       return;
     }
 
-    widgetIdRef.current = window.grecaptcha.render(captchaRef.current, {
-      sitekey: RECAPTCHA_SITE_KEY,
-      callback: (token: string) => {
-        setCaptchaToken(token);
-        setStatus((current) =>
-          current.type === "error" ? { type: "idle", message: "" } : current
-        );
-      },
-      "expired-callback": () => {
-        setCaptchaToken("");
-      },
-      "error-callback": () => {
-        setCaptchaToken("");
+    const grecaptcha = window.grecaptcha;
+
+    if (!grecaptcha || typeof grecaptcha.render !== "function") {
+      if (renderAttemptRef.current >= 20) {
         setStatus({
           type: "error",
           message: "Captcha could not be loaded. Please try again.",
         });
-      },
-    });
+        return;
+      }
+
+      renderAttemptRef.current += 1;
+      window.setTimeout(renderCaptcha, 250);
+      return;
+    }
+
+    const mountCaptcha = () => {
+      if (!captchaRef.current || widgetIdRef.current !== null) {
+        return;
+      }
+
+      widgetIdRef.current = grecaptcha.render(captchaRef.current, {
+        sitekey: RECAPTCHA_SITE_KEY,
+        callback: (token: string) => {
+          setCaptchaToken(token);
+          setStatus((current) =>
+            current.type === "error" ? { type: "idle", message: "" } : current
+          );
+        },
+        "expired-callback": () => {
+          setCaptchaToken("");
+        },
+        "error-callback": () => {
+          setCaptchaToken("");
+          setStatus({
+            type: "error",
+            message: "Captcha could not be loaded. Please try again.",
+          });
+        },
+      });
+    };
+
+    if (typeof grecaptcha.ready === "function") {
+      grecaptcha.ready(mountCaptcha);
+      return;
+    }
+
+    mountCaptcha();
   };
 
   useEffect(() => {
