@@ -1,19 +1,149 @@
-import { useState } from "react";
+"use client";
+
+import Script from "next/script";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+
+declare global {
+  interface Window {
+    grecaptcha?: {
+      render: (
+        container: HTMLElement,
+        parameters: {
+          sitekey: string;
+          callback: (token: string) => void;
+          "expired-callback"?: () => void;
+          "error-callback"?: () => void;
+        }
+      ) => number;
+      reset: (widgetId?: number) => void;
+    };
+  }
+}
+
+const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
+const initialFormData = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  handle: "",
+};
 
 const Form = () => {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    igOrTiktok: "",
-  });
+  const [formData, setFormData] = useState(initialFormData);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState<{
+    type: "idle" | "success" | "error";
+    message: string;
+  }>({ type: "idle", message: "" });
+  const captchaRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<number | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const renderCaptcha = () => {
+    if (
+      !RECAPTCHA_SITE_KEY ||
+      !captchaRef.current ||
+      !window.grecaptcha ||
+      widgetIdRef.current !== null
+    ) {
+      return;
+    }
+
+    widgetIdRef.current = window.grecaptcha.render(captchaRef.current, {
+      sitekey: RECAPTCHA_SITE_KEY,
+      callback: (token: string) => {
+        setCaptchaToken(token);
+        setStatus((current) =>
+          current.type === "error" ? { type: "idle", message: "" } : current
+        );
+      },
+      "expired-callback": () => {
+        setCaptchaToken("");
+      },
+      "error-callback": () => {
+        setCaptchaToken("");
+        setStatus({
+          type: "error",
+          message: "Captcha could not be loaded. Please try again.",
+        });
+      },
+    });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!RECAPTCHA_SITE_KEY) {
+      setStatus({
+        type: "error",
+        message: "Captcha is not configured.",
+      });
+      return;
+    }
+
+    renderCaptcha();
+  }, []);
+
+  const resetCaptcha = () => {
+    if (window.grecaptcha && widgetIdRef.current !== null) {
+      window.grecaptcha.reset(widgetIdRef.current);
+    }
+
+    setCaptchaToken("");
+  };
+
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (!captchaToken) {
+      setStatus({
+        type: "error",
+        message: "Please complete the captcha before submitting.",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setStatus({ type: "idle", message: "" });
+
+    try {
+      const response = await fetch("/api/create-your-app", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...formData,
+          captchaToken,
+        }),
+      });
+
+      const result = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to submit the form.");
+      }
+
+      setFormData(initialFormData);
+      resetCaptcha();
+      setStatus({
+        type: "success",
+        message: "Form submitted successfully.",
+      });
+    } catch (error) {
+      resetCaptcha();
+      setStatus({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to submit the form.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -21,6 +151,12 @@ const Form = () => {
       id="contact"
       className="contact z-20 flex h-full min-h-screen w-full items-center justify-center"
     >
+      <Script
+        src="https://www.google.com/recaptcha/api.js?render=explicit"
+        strategy="afterInteractive"
+        onLoad={renderCaptcha}
+      />
+
       <form
         onSubmit={handleSubmit}
         className="flex w-full max-w-md flex-col gap-6 rounded-md bg-[#0f0f0f] p-8"
@@ -35,60 +171,94 @@ const Form = () => {
         </div>
 
         <div>
-          <label className="mb-2 block text-sm text-gray-400">First Name</label>
+          <label
+            htmlFor="first_name"
+            className="mb-2 block text-sm text-gray-400"
+          >
+            First Name
+          </label>
           <input
+            id="first_name"
             type="text"
-            name="name"
-            value={formData.firstName}
+            name="first_name"
+            value={formData.first_name}
             onChange={handleChange}
             className="w-full rounded-md border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-white focus:ring-2 focus:ring-white focus:outline-none"
-            placeholder="First Name"
+            placeholder="Jane"
+            required
           />
         </div>
 
         <div>
-          <label className="mb-2 block text-sm text-gray-400">Last Name</label>
+          <label
+            htmlFor="last_name"
+            className="mb-2 block text-sm text-gray-400"
+          >
+            Last Name
+          </label>
           <input
+            id="last_name"
             type="text"
-            name="name"
-            value={formData.lastName}
+            name="last_name"
+            value={formData.last_name}
             onChange={handleChange}
             className="w-full rounded-md border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-white focus:ring-2 focus:ring-white focus:outline-none"
-            placeholder="Last Name"
+            placeholder="Doe"
+            required
           />
         </div>
 
         <div>
-          <label className="mb-2 block text-sm text-gray-400">Email</label>
+          <label htmlFor="email" className="mb-2 block text-sm text-gray-400">
+            Email
+          </label>
           <input
+            id="email"
             type="email"
             name="email"
             value={formData.email}
             onChange={handleChange}
             className="w-full rounded-md border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-white focus:ring-2 focus:ring-white focus:outline-none"
-            placeholder="Email"
+            placeholder="jane@example.com"
+            required
           />
         </div>
 
         <div>
-          <label className="mb-2 block text-sm text-gray-400">
+          <label htmlFor="handle" className="mb-2 block text-sm text-gray-400">
             Instagram / Tiktok Handle
           </label>
           <input
+            id="handle"
             type="text"
-            name="igOrTiktok"
-            value={formData.igOrTiktok}
+            name="handle"
+            value={formData.handle}
             onChange={handleChange}
             className="w-full rounded-md border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-white focus:ring-2 focus:ring-white focus:outline-none"
-            placeholder="@"
+            placeholder="@janedoe"
+            required
           />
         </div>
 
+        <div
+          ref={captchaRef}
+          className="min-h-[78px] overflow-hidden rounded-md"
+        />
+
+        {status.type !== "idle" ? (
+          <p
+            className={status.type === "success" ? "text-sm text-green-400" : "text-sm text-red-400"}
+          >
+            {status.message}
+          </p>
+        ) : null}
+
         <button
           type="submit"
-          className="rounded-md bg-white py-3 text-black transition hover:bg-gray-200"
+          disabled={isSubmitting}
+          className="rounded-md bg-white py-3 text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          SUBMIT
+          {isSubmitting ? "SUBMITTING..." : "SUBMIT"}
         </button>
       </form>
     </div>
