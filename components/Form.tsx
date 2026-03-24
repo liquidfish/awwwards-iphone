@@ -70,6 +70,7 @@ const Form = () => {
 
       widgetIdRef.current = grecaptcha.render(captchaRef.current, {
         sitekey: RECAPTCHA_SITE_KEY,
+        theme: "dark",
         callback: (token: string) => {
           setCaptchaToken(token);
           setStatus((current) =>
