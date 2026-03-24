@@ -11,6 +11,7 @@ declare global {
         container: HTMLElement,
         parameters: {
           sitekey: string;
+          theme?: "light" | "dark";
           callback: (token: string) => void;
           "expired-callback"?: () => void;
           "error-callback"?: () => void;
